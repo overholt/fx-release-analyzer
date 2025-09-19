@@ -494,14 +494,16 @@ Code Changes: +{commit_stats['total_insertions']}/-{commit_stats['total_deletion
         
         prompt += "\n## Significant Commits:\n"
         
-        # Add significant commits (large changes or security-related)
+        # Add significant commits (large changes or security-related) with links
         significant_commits = sorted(commits, 
                                    key=lambda c: c.insertions + c.deletions, 
                                    reverse=True)[:15]
         
         for commit in significant_commits:
             change_size = commit.insertions + commit.deletions
-            prompt += f"- {commit.hash[:8]}: {commit.message[:120]}... "
+            # Create link to commit on the official Firefox repository
+            commit_url = f"https://github.com/mozilla-firefox/firefox/commit/{commit.hash}"
+            prompt += f"- [{commit.hash[:8]}]({commit_url}): {commit.message[:120]}... "
             prompt += f"({change_size} lines changed)\n"
         
         prompt += "\n## Detailed Bug Information (Markdown Format):\n\n"
@@ -515,6 +517,13 @@ Code Changes: +{commit_stats['total_insertions']}/-{commit_stats['total_deletion
             bug_markdown = bug_info['markdown']
             if len(bug_markdown) > 2000:  # Limit individual bug markdown length
                 bug_markdown = bug_markdown[:2000] + "\n...(truncated)"
+            
+            # Add Bugzilla link if not already present in the markdown
+            bug_id = bug_info['id']
+            if f"https://bugzilla.mozilla.org/show_bug.cgi?id={bug_id}" not in bug_markdown:
+                bug_url = f"https://bugzilla.mozilla.org/show_bug.cgi?id={bug_id}"
+                bug_markdown = f"**[View on Bugzilla]({bug_url})**\n\n" + bug_markdown
+            
             prompt += f"{bug_markdown}\n\n---\n\n"
         
         if len(bugs_markdown) > 15:
@@ -525,7 +534,7 @@ Please provide a comprehensive Firefox release analysis including:
 
 1. **Executive Summary**: What Firefox users can expect from this release - highlight the most impactful changes
 2. **Major Features and Improvements**: Key new functionality or enhancements based on the bug fixes and commits
-3. **Security and Stability**: Critical bug fixes, security improvements, crash fixes - reference specific bugs where relevant
+3. **Security and Stability**: Critical bug fixes, security improvements, crash fixes - reference specific bugs where relevant with links
 4. **Performance**: Changes that impact browser performance, memory usage, startup time, etc.
 5. **Web Platform**: New web standards support, API changes, developer features
 6. **User Interface**: UI/UX improvements and changes
@@ -534,11 +543,17 @@ Please provide a comprehensive Firefox release analysis including:
 9. **Under the Hood**: Technical improvements, refactoring, code quality improvements
 10. **Notable Bug Fixes**: Highlight particularly important or long-standing issues that were resolved
 
-Focus on translating technical changes into user-facing benefits. Use the detailed bug information provided to give specific examples and context. When referencing bugs, mention their bug numbers.
+IMPORTANT FORMATTING REQUIREMENTS:
+- When referencing bugs, use this format: [Bug 1234567](https://bugzilla.mozilla.org/show_bug.cgi?id=1234567)
+- When referencing commits, use this format: [abcd1234](https://github.com/mozilla-firefox/firefox/commit/abcd1234567890...)
+- Include clickable links for all bug and commit references
+- Use markdown formatting throughout
+
+Focus on translating technical changes into user-facing benefits. Use the detailed bug information provided to give specific examples and context. 
 
 Group related changes together and explain the broader themes or initiatives they represent. If you see patterns suggesting major feature work, security initiatives, or technical improvements, call those out specifically.
 
-Make this analysis valuable for both end users who want to know what's new and developers who need to understand the technical changes."""
+Make this analysis valuable for both end users who want to know what's new and developers who need to understand the technical changes. Ensure all bug and commit references are properly linked."""
 
         return prompt
     
