@@ -195,73 +195,27 @@ class BmoToMdClient:
         
         bugs_markdown = []
         
-        # Process bugs in batches to avoid command line length limits
-        batch_size = 50
-        for i in range(0, len(bug_ids), batch_size):
-            batch = bug_ids[i:i + batch_size]
-            batch_str = ",".join(map(str, batch))
-            
+        # Process bugs individually since bmo-to-md doesn't support comma-delimited lists
+        for bug_id in bug_ids:
             try:
-                cmd = [self.bmo_to_md_path, batch_str]
+                cmd = [self.bmo_to_md_path, str(bug_id)]
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 
                 if result.stdout.strip():
-                    # Parse the markdown output - bmo-to-md outputs one bug per "section"
-                    markdown_content = result.stdout.strip()
-                    
-                    # Split by bug boundaries (usually "# Bug XXXXXX" headers)
-                    bug_sections = self._split_markdown_by_bugs(markdown_content, batch)
-                    
-                    for bug_id, content in bug_sections:
-                        bugs_markdown.append({
-                            'id': bug_id,
-                            'markdown': content
-                        })
+                    bugs_markdown.append({
+                        'id': bug_id,
+                        'markdown': result.stdout.strip()
+                    })
                 
             except subprocess.CalledProcessError as e:
-                print(f"Warning: bmo-to-md failed for batch {batch}: {e}")
+                print(f"Warning: bmo-to-md failed for bug {bug_id}: {e}")
                 continue
             except Exception as e:
-                print(f"Warning: Error processing batch {batch}: {e}")
+                print(f"Warning: Error processing bug {bug_id}: {e}")
                 continue
         
         print(f"Successfully fetched markdown for {len(bugs_markdown)} bugs")
         return bugs_markdown
-    
-    def _split_markdown_by_bugs(self, markdown: str, bug_ids: List[int]) -> List[Tuple[int, str]]:
-        """Split markdown output into individual bug sections"""
-        # bmo-to-md typically outputs with "# Bug XXXXXX" headers
-        sections = []
-        current_bug_id = None
-        current_content = []
-        
-        for line in markdown.split('\n'):
-            # Look for bug headers
-            if line.startswith('# Bug '):
-                # Save previous bug if we have one
-                if current_bug_id and current_content:
-                    sections.append((current_bug_id, '\n'.join(current_content)))
-                
-                # Extract bug ID from header
-                try:
-                    bug_id = int(line.split('# Bug ')[1].split()[0])
-                    if bug_id in bug_ids:
-                        current_bug_id = bug_id
-                        current_content = [line]
-                    else:
-                        current_bug_id = None
-                        current_content = []
-                except (ValueError, IndexError):
-                    current_bug_id = None
-                    current_content = []
-            elif current_bug_id:
-                current_content.append(line)
-        
-        # Don't forget the last bug
-        if current_bug_id and current_content:
-            sections.append((current_bug_id, '\n'.join(current_content)))
-        
-        return sections
 
 
 class GitAnalyzer:
