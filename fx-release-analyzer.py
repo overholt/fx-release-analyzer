@@ -547,38 +547,80 @@ class FirefoxReleaseAnalyzer:
         self.git_analyzer = GitAnalyzer(repo_path)
         self.claude_analyzer = ClaudeAnalyzer(claude_api_key)
     
+    def _commit_has_sufficient_info(self, commit: Commit) -> bool:
+        """Check if commit message has enough detail to skip bug lookup"""
+        message = commit.message.lower()
+
+        # Skip bug lookup if commit message is descriptive
+        descriptive_patterns = [
+            r'add\s+\w+',
+            r'implement\s+\w+',
+            r'fix\s+\w+.*\w+',  # Must have more than just "fix bug"
+            r'remove\s+\w+',
+            r'update\s+\w+.*\w+',  # Must be more specific than just "update"
+            r'refactor\s+\w+',
+            r'improve\s+\w+',
+            r'optimize\s+\w+',
+            r'enhance\s+\w+'
+        ]
+
+        # Has descriptive action and reasonable length
+        is_descriptive = any(re.search(pattern, message) for pattern in descriptive_patterns)
+        has_reasonable_length = len(message.split()) >= 4
+
+        # Skip very generic messages even if they match patterns
+        generic_messages = [
+            'fix bug', 'update code', 'add feature', 'remove file',
+            'merge branch', 'bump version', 'fix test', 'update test'
+        ]
+        is_generic = any(generic in message for generic in generic_messages)
+
+        return is_descriptive and has_reasonable_length and not is_generic
+
     def analyze_release(self, version: str) -> str:
         """Perform complete analysis of a Firefox release"""
         print(f"Analyzing Firefox {version} release...")
-        
+
         # Get commits for the release
         print("Fetching commits from git repository...")
         commits = self.git_analyzer.get_commits_for_release(version)
-        
-        # Extract unique bug IDs from commits
-        bug_ids_from_commits = set()
+
+        # Separate commits by whether they need bug info
+        commits_needing_bug_info = []
+        commits_with_sufficient_info = []
+
         for commit in commits:
-            bug_ids_from_commits.update(commit.bug_ids)
-        
-        # Get bugs using bmo-to-md (both milestone-based and commit-referenced)
-        print("Fetching bugs using bmo-to-md...")
-        milestone_bugs = self.bmo_client.get_bugs_for_release(version)
-        
-        if bug_ids_from_commits:
-            print(f"Fetching {len(bug_ids_from_commits)} additional bugs referenced in commits...")
-            commit_bugs = self.bmo_client.get_bugs_markdown(list(bug_ids_from_commits))
-            
-            # Combine and deduplicate bugs
-            all_bugs = {bug['id']: bug for bug in milestone_bugs}
-            for bug in commit_bugs:
-                all_bugs[bug['id']] = bug
-            
-            bugs_markdown = list(all_bugs.values())
-        else:
-            bugs_markdown = milestone_bugs
-        
-        print(f"Found {len(commits)} commits and {len(bugs_markdown)} bugs")
-        
+            if self._commit_has_sufficient_info(commit):
+                commits_with_sufficient_info.append(commit)
+            else:
+                commits_needing_bug_info.append(commit)
+
+        print(f"Found {len(commits)} commits:")
+        print(f"  - {len(commits_with_sufficient_info)} with sufficient detail")
+        print(f"  - {len(commits_needing_bug_info)} needing bug lookup")
+
+        # Extract bug IDs only from commits that need additional info
+        bug_ids_to_fetch = set()
+        for commit in commits_needing_bug_info:
+            bug_ids_to_fetch.update(commit.bug_ids)
+
+        # Also get milestone bugs (but only fetch detailed info selectively)
+        print("Finding bugs by milestone...")
+        milestone_bug_ids = set()
+        for milestone in [f'firefox{version}', f'Firefox {version}', f'{version}']:
+            ids = self.bmo_client._search_bugs_by_milestone(milestone)
+            milestone_bug_ids.update(ids)
+
+        # Combine all bug IDs that need detailed lookup
+        all_bug_ids_to_fetch = bug_ids_to_fetch.union(milestone_bug_ids)
+
+        bugs_markdown = []
+        if all_bug_ids_to_fetch:
+            print(f"Fetching detailed info for {len(all_bug_ids_to_fetch)} bugs (instead of all bugs)...")
+            bugs_markdown = self.bmo_client.get_bugs_markdown(list(all_bug_ids_to_fetch))
+
+        print(f"Using {len(commits)} commits and {len(bugs_markdown)} bugs with detailed info")
+
         # Generate analysis
         print("Generating analysis with Claude...")
         return self.claude_analyzer.analyze_release(version, bugs_markdown, commits)
